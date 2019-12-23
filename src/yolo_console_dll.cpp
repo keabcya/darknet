@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2019, ADLINK Technology. All rights reserved.
+ *
+ */
+
 #include <iostream>
 #include <iomanip>
 #include <string>
@@ -10,12 +15,30 @@
 #include <mutex>         // std::mutex, std::unique_lock
 #include <cmath>
 
+// Include files to use the pylon API.
+#include <pylon/PylonIncludes.h>
+#ifdef PYLON_WIN_BUILD
+#    include <pylon/PylonGUI.h>
+#endif
+
+// Namespace for using opencv objects.
+//using namespace cv;
+
+// Namespace for using pylon objects.
+using namespace Pylon;
+
+// Namespace for using cout.
+using namespace std;
+
+// Number of images to be grabbed.
+static const uint32_t c_countOfImagesToGrab = -1;
+CPylonImage image;
 
 // It makes sense only for video-Camera (not for video-File)
 // To use - uncomment the following line. Optical-flow is supported only by OpenCV 3.x - 4.x
 //#define TRACK_OPTFLOW
-//#define GPU
-
+#define GPU
+#define OPENCV
 // To use 3D-stereo camera ZED - uncomment the following line. ZED_SDK should be installed.
 //#define ZED_STEREO
 
@@ -151,6 +174,10 @@ std::vector<bbox_t> get_3d_coordinates(std::vector<bbox_t> bbox_vect, cv::Mat xy
 
 #include <opencv2/opencv.hpp>            // C++
 #include <opencv2/core/version.hpp>
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
+#include <opencv2/core/core.hpp>
+
 #ifndef CV_VERSION_EPOCH     // OpenCV 3.x and 4.x
 #include <opencv2/videoio/videoio.hpp>
 #define OPENCV_VERSION CVAUX_STR(CV_VERSION_MAJOR)"" CVAUX_STR(CV_VERSION_MINOR)"" CVAUX_STR(CV_VERSION_REVISION)
@@ -173,7 +200,6 @@ std::vector<bbox_t> get_3d_coordinates(std::vector<bbox_t> bbox_vect, cv::Mat xy
 #pragma comment(lib, "opencv_video" OPENCV_VERSION ".lib")
 #endif    // USE_CMAKE_LIBS
 #endif    // CV_VERSION_EPOCH
-
 
 void draw_boxes(cv::Mat mat_img, std::vector<bbox_t> result_vec, std::vector<std::string> obj_names,
     int current_det_fps = -1, int current_cap_fps = -1)
@@ -315,10 +341,11 @@ int main(int argc, char *argv[])
             std::string const protocol = filename.substr(0, 7);
             if (file_ext == "avi" || file_ext == "mp4" || file_ext == "mjpg" || file_ext == "mov" ||     // video file
                 protocol == "rtmp://" || protocol == "rtsp://" || protocol == "http://" || protocol == "https:/" ||    // video network stream
-                filename == "zed_camera" || file_ext == "svo" || filename == "web_camera")   // ZED stereo camera
+                filename == "zed_camera" || file_ext == "svo" || filename == "web_camera" ||   // ZED stereo camera
+                filename == "basler_camera")   // Basler camera 
 
             {
-                if (protocol == "rtsp://" || protocol == "http://" || protocol == "https:/" || filename == "zed_camera" || filename == "web_camera")
+                if (protocol == "rtsp://" || protocol == "http://" || protocol == "https:/" || filename == "zed_camera" || filename == "web_camera" || filename == "basler_camera")
                     detection_sync = false;
 
                 cv::Mat cur_frame;
@@ -356,17 +383,93 @@ int main(int argc, char *argv[])
                 cv::VideoCapture cap;
                 if (filename == "web_camera") {
                     cap.open(0);
-                    cap >> cur_frame;
-                } else if (!use_zed_camera) {
+                    cap >> cur_frame;                
+                }
+                else if (filename == "basler_camera") {                    
+                    // The exit code of the sample application.
+                    int exitCode = 0;
+                    // Before using any pylon methods, the pylon runtime must be initialized. 
+                    PylonInitialize();
+                    try
+                    {
+                        // Create an instant camera object with the camera device found first.
+                        CInstantCamera camera(CTlFactory::GetInstance().CreateFirstDevice());
+
+                        // Print the model name of the camera.
+                        cout << "Using device " << camera.GetDeviceInfo().GetModelName() << endl;
+
+                        // The parameter MaxNumBuffer can be used to control the count of buffers
+                        // allocated for grabbing. The default value of this parameter is 10.
+                        camera.MaxNumBuffer = 5;
+
+                        // Start the grabbing of c_countOfImagesToGrab images.
+                        // The camera device is parameterized with a default configuration which
+                        // sets up free-running continuous acquisition.
+                        camera.StartGrabbing(c_countOfImagesToGrab);
+
+                        // This smart pointer will receive the grab result data.
+                        CGrabResultPtr ptrGrabResult;
+
+                        //cv::Mat cv_img;
+
+                        CImageFormatConverter fc;
+                        fc.OutputPixelFormat = PixelType_BGR8packed;
+
+                        // Camera.StopGrabbing() is called automatically by the RetrieveResult() method
+                        // when c_countOfImagesToGrab images have been retrieved.
+                        while (camera.IsGrabbing())
+                        {
+                            // Wait for an image and then retrieve it. A timeout of 5000 ms is used.
+                            camera.RetrieveResult(3000, ptrGrabResult, TimeoutHandling_ThrowException);
+
+                            // Image grabbed successfully?
+                            if (ptrGrabResult->GrabSucceeded())
+                            {
+                                // Access the image data.
+                                cout << "SizeX: " << ptrGrabResult->GetWidth() << "  SizeY: " << ptrGrabResult->GetHeight() << endl;                                
+                                const uint8_t *pImageBuffer = (uint8_t *)ptrGrabResult->GetBuffer();
+                                //cout << "Gray value of first pixel: " << (uint32_t)pImageBuffer[0] << endl << endl;
+                                fc.Convert(image, ptrGrabResult);
+                                //cv_img = cv::Mat(ptrGrabResult->GetHeight(), ptrGrabResult->GetWidth(), CV_8UC3, (uint8_t*)image.GetBuffer());
+                                cur_frame = cv::Mat(ptrGrabResult->GetHeight(), ptrGrabResult->GetWidth(), CV_8UC3, (uint8_t*)image.GetBuffer());
+                                //cap >> cur_frame;
+
+#ifdef PYLON_WIN_BUILD
+                                // Display the grabbed image.
+                                Pylon::DisplayImage(1, ptrGrabResult);
+#endif
+                            }
+                            else
+                            {
+                                cout << "Error: " << ptrGrabResult->GetErrorCode() << " " << ptrGrabResult->GetErrorDescription() << endl;
+                            }
+                        }
+                    }
+                    catch (const GenericException &e)
+                    {
+                        // Error handling.
+                        cerr << "An exception occurred." << endl
+                            << e.GetDescription() << endl;
+                        exitCode = 1;
+                    }
+
+                    //cap.open(0);
+                    //cap >> cur_frame;
+                }
+                else if (!use_zed_camera) {
                     cap.open(filename);
                     cap >> cur_frame;
                 }
 #ifdef CV_VERSION_EPOCH // OpenCV 2.x
                 video_fps = cap.get(CV_CAP_PROP_FPS);
 #else
-                video_fps = cap.get(cv::CAP_PROP_FPS);
-#endif
+                //video_fps = cap.get(cv::CAP_PROP_FPS);
+                //video_fps = cap.get(cv::CAP_PROP_FPS);
+                cout << ">>> 3 video_fps " << video_fps << endl;
+#endif                
                 cv::Size const frame_size = cur_frame.size();
+                //cv::Size const frame_size = (ptrGrabResult->GetWidth() , ptrGrabResult->GetHeight());
+                        
                 //cv::Size const frame_size(cap.get(CV_CAP_PROP_FRAME_WIDTH), cap.get(CV_CAP_PROP_FRAME_HEIGHT));
                 std::cout << "\n Video size: " << frame_size << std::endl;
 
