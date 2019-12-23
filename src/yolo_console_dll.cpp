@@ -432,11 +432,32 @@ int main(int argc, char *argv[])
                                 fc.Convert(image, ptrGrabResult);
                                 //cv_img = cv::Mat(ptrGrabResult->GetHeight(), ptrGrabResult->GetWidth(), CV_8UC3, (uint8_t*)image.GetBuffer());
                                 cur_frame = cv::Mat(ptrGrabResult->GetHeight(), ptrGrabResult->GetWidth(), CV_8UC3, (uint8_t*)image.GetBuffer());
+
+                                /////////
+
+                                // to achive high performance for multiple images do these 2 lines in another thread
+                                cv::Mat mat_img = cur_frame;
+                                auto det_image = detector.mat_to_image_resize(mat_img);
+
+                                auto start = std::chrono::steady_clock::now();
+                                std::vector<bbox_t> result_vec = detector.detect_resized(*det_image, mat_img.size().width, mat_img.size().height);
+                                auto end = std::chrono::steady_clock::now();
+                                std::chrono::duration<double> spent = end - start;
+                                std::cout << " Time: " << spent.count() << " sec \n";
+
+                                //result_vec = detector.tracking_id(result_vec);    // comment it - if track_id is not required
+                                draw_boxes(mat_img, result_vec, obj_names);
+                                cv::imshow("window name", mat_img);
+                                show_console_result(result_vec, obj_names);
+                                cv::waitKey(10);
+                                /////////////
+
+
                                 //cap >> cur_frame;
 
 #ifdef PYLON_WIN_BUILD
                                 // Display the grabbed image.
-                                Pylon::DisplayImage(1, ptrGrabResult);
+                                //Pylon::DisplayImage(1, ptrGrabResult);
 #endif
                             }
                             else
