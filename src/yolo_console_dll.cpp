@@ -27,9 +27,6 @@
 // Namespace for using pylon objects.
 using namespace Pylon;
 
-// Namespace for using cout.
-using namespace std;
-
 // Number of images to be grabbed.
 static const uint32_t c_countOfImagesToGrab = -1;
 CPylonImage image;
@@ -396,7 +393,7 @@ int main(int argc, char *argv[])
                         CInstantCamera camera(CTlFactory::GetInstance().CreateFirstDevice());
 
                         // Print the model name of the camera.
-                        cout << "Using device " << camera.GetDeviceInfo().GetModelName() << endl;
+                        std::cout << "Using device " << camera.GetDeviceInfo().GetModelName() << std::endl;
 
                         // The parameter MaxNumBuffer can be used to control the count of buffers
                         // allocated for grabbing. The default value of this parameter is 10.
@@ -410,8 +407,7 @@ int main(int argc, char *argv[])
                         // This smart pointer will receive the grab result data.
                         CGrabResultPtr ptrGrabResult;
 
-                        //cv::Mat cv_img;
-
+                        // Convert pixel format as BGR8
                         CImageFormatConverter fc;
                         fc.OutputPixelFormat = PixelType_BGR8packed;
 
@@ -419,22 +415,19 @@ int main(int argc, char *argv[])
                         // when c_countOfImagesToGrab images have been retrieved.
                         while (camera.IsGrabbing())
                         {
-                            // Wait for an image and then retrieve it. A timeout of 5000 ms is used.
+                            // Wait for an image and then retrieve it. A timeout of 3000 ms is used.
                             camera.RetrieveResult(3000, ptrGrabResult, TimeoutHandling_ThrowException);
 
                             // Image grabbed successfully?
                             if (ptrGrabResult->GrabSucceeded())
                             {
                                 // Access the image data.
-                                cout << "SizeX: " << ptrGrabResult->GetWidth() << "  SizeY: " << ptrGrabResult->GetHeight() << endl;                                
-                                const uint8_t *pImageBuffer = (uint8_t *)ptrGrabResult->GetBuffer();
-                                //cout << "Gray value of first pixel: " << (uint32_t)pImageBuffer[0] << endl << endl;
+                                //std::cout << "SizeX: " << ptrGrabResult->GetWidth() << "  SizeY: " << ptrGrabResult->GetHeight() << std::endl;
+                                const uint8_t *pImageBuffer = (uint8_t *)ptrGrabResult->GetBuffer();                                
                                 fc.Convert(image, ptrGrabResult);
-                                //cv_img = cv::Mat(ptrGrabResult->GetHeight(), ptrGrabResult->GetWidth(), CV_8UC3, (uint8_t*)image.GetBuffer());
                                 cur_frame = cv::Mat(ptrGrabResult->GetHeight(), ptrGrabResult->GetWidth(), CV_8UC3, (uint8_t*)image.GetBuffer());
-
+                               
                                 /////////
-
                                 // to achive high performance for multiple images do these 2 lines in another thread
                                 cv::Mat mat_img = cur_frame;
                                 auto det_image = detector.mat_to_image_resize(mat_img);
@@ -443,7 +436,7 @@ int main(int argc, char *argv[])
                                 std::vector<bbox_t> result_vec = detector.detect_resized(*det_image, mat_img.size().width, mat_img.size().height);
                                 auto end = std::chrono::steady_clock::now();
                                 std::chrono::duration<double> spent = end - start;
-                                std::cout << " Time: " << spent.count() << " sec \n";
+                                std::cout << "Inference Time: " << spent.count() << " sec \n";
 
                                 //result_vec = detector.tracking_id(result_vec);    // comment it - if track_id is not required
                                 draw_boxes(mat_img, result_vec, obj_names);
@@ -452,9 +445,6 @@ int main(int argc, char *argv[])
                                 cv::waitKey(10);
                                 /////////////
 
-
-                                //cap >> cur_frame;
-
 #ifdef PYLON_WIN_BUILD
                                 // Display the grabbed image.
                                 //Pylon::DisplayImage(1, ptrGrabResult);
@@ -462,15 +452,15 @@ int main(int argc, char *argv[])
                             }
                             else
                             {
-                                cout << "Error: " << ptrGrabResult->GetErrorCode() << " " << ptrGrabResult->GetErrorDescription() << endl;
+                                std::cout << "Error: " << ptrGrabResult->GetErrorCode() << " " << ptrGrabResult->GetErrorDescription() << std::endl;
                             }
                         }
                     }
                     catch (const GenericException &e)
                     {
                         // Error handling.
-                        cerr << "An exception occurred." << endl
-                            << e.GetDescription() << endl;
+                        std::cerr << "An exception occurred." << std::endl
+                            << e.GetDescription() << std::endl;
                         exitCode = 1;
                     }
 
@@ -484,14 +474,10 @@ int main(int argc, char *argv[])
 #ifdef CV_VERSION_EPOCH // OpenCV 2.x
                 video_fps = cap.get(CV_CAP_PROP_FPS);
 #else
-                //video_fps = cap.get(cv::CAP_PROP_FPS);
-                //video_fps = cap.get(cv::CAP_PROP_FPS);
-                cout << ">>> 3 video_fps " << video_fps << endl;
+                video_fps = cap.get(cv::CAP_PROP_FPS);
+
 #endif                
                 cv::Size const frame_size = cur_frame.size();
-                //cv::Size const frame_size = (ptrGrabResult->GetWidth() , ptrGrabResult->GetHeight());
-                        
-                //cv::Size const frame_size(cap.get(CV_CAP_PROP_FRAME_WIDTH), cap.get(CV_CAP_PROP_FRAME_HEIGHT));
                 std::cout << "\n Video size: " << frame_size << std::endl;
 
                 cv::VideoWriter output_video;
