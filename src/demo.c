@@ -8,6 +8,7 @@
 #include "image.h"
 #include "demo.h"
 #include <sys/time.h>
+#include <pylonc/PylonC.h> // for Neon-J
 
 #define DEMO 1
 
@@ -35,7 +36,9 @@ static int demo_done = 0;
 static int demo_total = 0;
 double demo_time;
 
+
 detection *get_network_boxes(network *net, int w, int h, float thresh, float hier, int *map, int relative, int *num);
+void demo_Neon_J(char *cfgfile, char *weightfile, float thresh, int cam_index, const char *filename, char **names, int classes, int delay, char *prefix, int avg_frames, float hier, int w, int h, int frames, int fullscreen);
 
 int size_network(network *net)
 {
@@ -140,11 +143,16 @@ void *detect_in_thread(void *ptr)
 void *fetch_in_thread(void *ptr)
 {
     free_image(buff[buff_index]);
-    buff[buff_index] = get_image_from_stream(cap);
+    if (ptr == NULL)
+        buff[buff_index] = get_image_from_stream(cap);
+    else //if (*(int *)ptr == 1)
+        buff[buff_index] = Neon_Basler_Get_Image();
+
     if(buff[buff_index].data == 0) {
         demo_done = 1;
         return 0;
     }
+
     letterbox_image_into(buff[buff_index], net->w, net->h, buff_letter[buff_index]);
     return 0;
 }
@@ -153,6 +161,7 @@ void *display_in_thread(void *ptr)
 {
     int c = show_image(buff[(buff_index + 1)%3], "Demo", 1);
     if (c != -1) c = c%256;
+
     if (c == 27) {
         demo_done = 1;
         return 0;
@@ -186,6 +195,12 @@ void *detect_loop(void *ptr)
 
 void demo(char *cfgfile, char *weightfile, float thresh, int cam_index, const char *filename, char **names, int classes, int delay, char *prefix, int avg_frames, float hier, int w, int h, int frames, int fullscreen)
 {
+    if (strcmp(filename, "Neon-J") == 0)
+    {
+        demo_Neon_J(cfgfile, weightfile, thresh, cam_index, filename, names, classes, delay, prefix, avg_frames, hier, w, h, frames, fullscreen);
+        return;
+    }
+
     //demo_frame = avg_frames;
     image **alphabet = load_alphabet();
     demo_names = names;
@@ -249,6 +264,81 @@ void demo(char *cfgfile, char *weightfile, float thresh, int cam_index, const ch
         pthread_join(detect_thread, 0);
         ++count;
     }
+}
+
+// for Neon-J
+void demo_Neon_J(char *cfgfile, char *weightfile, float thresh, int cam_index, const char *filename, char **names, int classes, int delay, char *prefix, int avg_frames, float hier, int w, int h, int frames, int fullscreen)
+{
+    //demo_frame = avg_frames;
+    image **alphabet = load_alphabet();
+    demo_names = names;
+    demo_alphabet = alphabet;
+    demo_classes = classes;
+    demo_thresh = thresh;
+    demo_hier = hier;
+    printf("Demo\n");
+    net = load_network(cfgfile, weightfile, 0);
+    set_batch_network(net, 1);
+    pthread_t detect_thread;
+    pthread_t fetch_thread;
+
+    srand(2222222);
+
+    int i;
+    demo_total = size_network(net);
+    predictions = calloc(demo_frame, sizeof(float*));
+    for (i = 0; i < demo_frame; ++i){
+        predictions[i] = calloc(demo_total, sizeof(float));
+    }
+    avg = calloc(demo_total, sizeof(float));
+    
+    if (Neon_Basler_Init() == -1)
+    {
+        printf("Neon-J: Neon-J device initial...Fail.\n");
+        return;
+    }
+    printf("Neon-J: Neon-J device initial...Done.\n");
+    
+    buff[0] = Neon_Basler_Get_Image();
+    buff[1] = copy_image(buff[0]);
+    buff[2] = copy_image(buff[0]);
+    buff_letter[0] = letterbox_image(buff[0], net->w, net->h);
+    buff_letter[1] = letterbox_image(buff[0], net->w, net->h);
+    buff_letter[2] = letterbox_image(buff[0], net->w, net->h);
+
+    int count = 0;
+    if(!prefix){
+        make_window("Demo", 1352, 1013, fullscreen);
+    }
+
+    demo_time = what_time_is_it_now();
+
+    int demo_device = 1;
+    while(!demo_done){
+        buff_index = (buff_index + 1) %3;
+        if(pthread_create(&fetch_thread, 0, fetch_in_thread, &demo_device))
+            error("Thread creation failed");
+//        pthread_join(fetch_thread, 0);
+
+        if(pthread_create(&detect_thread, 0, detect_in_thread, &demo_device))
+            error("Thread creation failed");
+//        pthread_join(detect_thread, 0);
+
+        if(!prefix){
+            fps = 1./(what_time_is_it_now() - demo_time);
+            demo_time = what_time_is_it_now();
+            display_in_thread(0);
+        }else{
+            char name[256];
+            sprintf(name, "%s_%08d", prefix, count);
+            save_image(buff[(buff_index + 1)%3], name);
+        }
+        pthread_join(fetch_thread, 0);
+        pthread_join(detect_thread, 0);
+        ++count;
+    }
+
+    Neon_Basler_Terminate();
 }
 
 /*

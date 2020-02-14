@@ -20,6 +20,11 @@ image load_image_cv(char *filename, int channels);
 int show_image_cv(image im, const char* name, int ms);
 #endif
 
+// For Neon-J Project
+int Neon_Basler_Init(void);
+image Neon_Basler_Get_Image(void);
+void Neon_Basler_Terminate(void);
+
 float get_color(int c, int x, int max);
 void draw_box(image a, int x1, int y1, int x2, int y2, float r, float g, float b);
 void draw_bbox(image a, box bbox, int w, float r, float g, float b);
